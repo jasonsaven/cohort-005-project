@@ -1,0 +1,1 @@
+**{{ data.buyerName }}** asked for a refund on {% if data.purchaseKind == "team_licence" %}a Team Licence for{% else %}their Individual Purchase of{% endif %} **{{ data.courseTitle }}**: "{{ data.reason }}"

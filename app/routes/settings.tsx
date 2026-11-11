@@ -17,6 +17,14 @@ import { db } from "~/db";
 import { eq } from "drizzle-orm";
 import { formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
+import { isTeamAdmin } from "~/lib/seats.server";
+import {
+  getNotificationFeedConfig,
+  identifyNotificationUser,
+} from "~/lib/notifications.server";
+import { toPerson } from "~/lib/users.server";
+import { notificationCategoriesFor } from "~/lib/notification-preferences";
+import { NotificationPreferencesCard } from "~/components/notification-preferences-card";
 
 const settingsSchema = z.object({
   name: z.string().trim().min(1, "Name cannot be empty."),
@@ -51,7 +59,21 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
+  // Null without Knock keys, which hides the card like the bell.
+  const notificationConfig = await getNotificationFeedConfig(currentUserId);
+  // The card reads preferences straight from Knock, which only knows people
+  // it has sent a Notification to.
+  if (notificationConfig) await identifyNotificationUser(toPerson(currentUser));
+
   return {
+    notifications: {
+      config: notificationConfig,
+      categories: notificationCategoriesFor({
+        role: currentUser.role,
+        // The same Team Admin N4 (`seat-claimed`) goes to.
+        isTeamAdmin: isTeamAdmin(db, currentUserId),
+      }),
+    },
     user: {
       id: currentUser.id,
       name: currentUser.name,
@@ -98,7 +120,7 @@ export async function action({ request }: Route.ActionArgs) {
 }
 
 export default function Settings({ loaderData }: Route.ComponentProps) {
-  const { user, refundRequests } = loaderData;
+  const { user, refundRequests, notifications } = loaderData;
   const openCount = refundRequests.filter(
     (refundRequest) => refundRequest.status === RefundStatus.Open
   ).length;
@@ -188,8 +210,15 @@ export default function Settings({ loaderData }: Route.ComponentProps) {
         </CardContent>
       </Card>
 
+      {notifications.config && (
+        <NotificationPreferencesCard
+          config={notifications.config}
+          categories={notifications.categories}
+        />
+      )}
+
       {refundRequests.length > 0 && (
-        <Card className="mt-8 max-w-md">
+        <Card id="refund-requests" className="mt-8 max-w-md">
           <CardHeader>
             <h2 className="text-lg font-semibold">Refund Requests</h2>
             {openCount > 0 && (

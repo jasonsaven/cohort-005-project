@@ -1,0 +1,1 @@
+Your refund on {% if data.ended == "unclaimed_seats" %}a Team Licence for {% endif %}**{{ data.courseTitle }}** was approved{% if data.ended == "enrollment" %}, and your Enrollment has ended{% elsif data.ended == "unclaimed_seats" %}, and its Unclaimed Seats can no longer be claimed{% endif %}.{% if data.decisionNote %} "{{ data.decisionNote }}"{% endif %}
