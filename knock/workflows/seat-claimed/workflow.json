@@ -1,0 +1,40 @@
+{
+  "name": "Seat claimed",
+  "description": "N4. A Student claimed a Seat on a Team Licence. Goes to the Team Admin who bought it, unless they claimed it.",
+  "steps": [
+    {
+      "type": "channel",
+      "template": {
+        "action_url": "{{ data.url }}",
+        "markdown_body@": "in_app_feed_1/markdown_body.md"
+      },
+      "ref": "in_app_feed_1",
+      "channel_type": "in_app_feed",
+      "channel_key": "in-app"
+    },
+    {
+      "type": "channel",
+      "template": {
+        "subject": "{{ data.studentName }} claimed a Seat on {{ data.courseTitle }}",
+        "settings": {
+          "layout_key": "default",
+          "attachment_key": "attachments"
+        },
+        "html_body@": "email_1/html_body.html"
+      },
+      "ref": "email_1",
+      "channel_type": "email",
+      "channel_key": "knock-email"
+    }
+  ],
+  "categories": [
+    "team"
+  ],
+  "trigger_frequency": "every_trigger",
+  "__readonly": {
+    "key": "seat-claimed",
+    "active": true,
+    "valid": true
+  },
+  "$schema": "https://schemas.knock.app/cli/workflow.json"
+}

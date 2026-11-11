@@ -1,6 +1,15 @@
 import { and, eq } from "drizzle-orm";
-import { coupons, enrollments, purchases } from "~/db/schema";
-import { getSeatAvailability, type Db } from "~/lib/refunds.server";
+import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
+import {
+  getSeatAvailability,
+  toPerson,
+  type Db,
+} from "~/lib/refunds.server";
+import {
+  seatClaimed,
+  withRecipients,
+  type Notification,
+} from "~/lib/notifications";
 
 // ─── Seats ───
 // A Student claiming a Seat on a Team Licence. See GLOSSARY.md for the
@@ -11,8 +20,14 @@ export const SEAT_ON_HOLD =
 export const SEAT_REFUNDED =
   "This seat is no longer available. Ask the person who shared it with you.";
 
+const TEAM_PAGE_URL = "/team";
+
 export type ClaimSeatResult =
-  | { ok: true; enrollment: typeof enrollments.$inferSelect }
+  | {
+      ok: true;
+      enrollment: typeof enrollments.$inferSelect;
+      notifications: Notification[];
+    }
   | { ok: false; error: string };
 
 /**
@@ -83,6 +98,37 @@ export function claimSeat(
       .returning()
       .get();
 
-    return { ok: true, enrollment };
+    // Counted after the claim, so the Team Admin reads "n of m" as it now is.
+    const licenceSeats = tx
+      .select({ redeemedByUserId: coupons.redeemedByUserId })
+      .from(coupons)
+      .where(eq(coupons.purchaseId, seat.purchaseId))
+      .all();
+    const student = tx.select().from(users).where(eq(users.id, userId)).get();
+    const teamAdmin = purchase
+      ? tx.select().from(users).where(eq(users.id, purchase.userId)).get()
+      : undefined;
+    const course = tx
+      .select()
+      .from(courses)
+      .where(eq(courses.id, seat.courseId))
+      .get();
+
+    const notifications =
+      student && teamAdmin && course
+        ? withRecipients([
+            seatClaimed(seat.id, toPerson(student), toPerson(teamAdmin), {
+              studentName: student.name,
+              courseTitle: course.title,
+              claimedSeats: licenceSeats.filter(
+                (s) => s.redeemedByUserId !== null
+              ).length,
+              totalSeats: licenceSeats.length,
+              url: TEAM_PAGE_URL,
+            }),
+          ])
+        : [];
+
+    return { ok: true, enrollment, notifications };
   });
 }

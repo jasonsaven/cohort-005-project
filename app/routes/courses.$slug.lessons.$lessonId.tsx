@@ -11,6 +11,7 @@ import {
 } from "~/components/comment-thread";
 import { MIN_COMMENT_LENGTH, MAX_COMMENT_LENGTH } from "~/lib/comments";
 import { postComment } from "~/lib/comments.server";
+import { sendNotifications } from "~/lib/notifications.server";
 import { db } from "~/db";
 import {
   categories,
@@ -878,6 +879,9 @@ export async function action({ params, request }: Route.ActionArgs) {
         if (!result.ok) {
           return { ok: false, error: result.error };
         }
+        // Best-effort and only after the write: a Knock failure is logged,
+        // and the comment stays posted.
+        await sendNotifications(result.notifications);
         return { ok: true };
       }
 

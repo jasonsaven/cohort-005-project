@@ -25,6 +25,9 @@ import {
   type RuleBreak,
 } from "~/lib/refund-rules";
 import {
+  refundRequestApproved,
+  refundRequestDecided,
+  refundRequestDeclined,
   refundRequestRaised,
   withRecipients,
   type Notification,
@@ -370,7 +373,7 @@ export type RaiseResult =
 
 // ─── Who hears about Refund Requests ───
 
-function toPerson(user: User): NotificationPerson {
+export function toPerson(user: User): NotificationPerson {
   return {
     id: user.id,
     name: user.name,
@@ -620,7 +623,73 @@ export function listTeamLicences(db: Queryable, buyerId: number, now: Date) {
 
 // ─── Deciding a Refund Request ───
 
-export type DecisionResult = { ok: true; email: Email } | Failure;
+export type DecisionResult =
+  | { ok: true; email: Email; notifications: Notification[] }
+  | Failure;
+
+/** Where the buyer reads their decided Refund Requests. */
+const BUYER_REFUND_REQUESTS_URL = "/settings#refund-requests";
+
+type ApprovalEnded = "enrollment" | "unclaimed_seats" | "nothing";
+
+type Decision =
+  | { decision: "approved"; ended: ApprovalEnded; note: string | null }
+  | { decision: "declined"; note: string };
+
+/**
+ * N2 or N3 to the buyer, and N7 to every other Platform Admin. Keyed on the
+ * Refund Request, which can only be decided once.
+ */
+function buildDecisionNotifications(
+  db: Queryable,
+  refundRequestId: number,
+  purchase: Purchase,
+  platformAdminId: number,
+  outcome: Decision
+): Notification[] {
+  const buyer = db
+    .select()
+    .from(users)
+    .where(eq(users.id, purchase.userId))
+    .get();
+  const decider = db
+    .select()
+    .from(users)
+    .where(eq(users.id, platformAdminId))
+    .get();
+  const course = db
+    .select()
+    .from(courses)
+    .where(eq(courses.id, purchase.courseId))
+    .get();
+
+  if (!buyer || !decider || !course) return [];
+
+  const toBuyer =
+    outcome.decision === "approved"
+      ? refundRequestApproved(refundRequestId, toPerson(decider), toPerson(buyer), {
+          courseTitle: course.title,
+          ended: outcome.ended,
+          decisionNote: outcome.note,
+          url: BUYER_REFUND_REQUESTS_URL,
+        })
+      : refundRequestDeclined(refundRequestId, toPerson(decider), toPerson(buyer), {
+          courseTitle: course.title,
+          decisionNote: outcome.note,
+          url: BUYER_REFUND_REQUESTS_URL,
+        });
+
+  return withRecipients([
+    toBuyer,
+    refundRequestDecided(refundRequestId, toPerson(decider), getPlatformAdmins(db), {
+      deciderName: decider.name,
+      decision: outcome.decision,
+      buyerName: buyer.name,
+      courseTitle: course.title,
+      url: REFUNDS_QUEUE_URL,
+    }),
+  ]);
+}
 
 function findOpenRefundRequest(
   tx: Queryable,
@@ -676,6 +745,7 @@ export function approveRefundRequest(
 
     const { purchase } = found;
     const seats = getSeats(tx, purchase.id);
+    let ended: ApprovalEnded;
 
     if (kindOf(seats) === "team_licence") {
       if (seats.some(isClaimed)) {
@@ -693,6 +763,7 @@ export function approveRefundRequest(
           and(eq(coupons.purchaseId, purchase.id), isNull(coupons.redeemedAt))
         )
         .run();
+      ended = "unclaimed_seats";
     } else {
       const claimedSeat = tx
         .select({ id: coupons.id })
@@ -716,6 +787,7 @@ export function approveRefundRequest(
           )
           .run();
       }
+      ended = claimedSeat ? "nothing" : "enrollment";
     }
 
     tx.update(refunds)
@@ -732,6 +804,13 @@ export function approveRefundRequest(
     return {
       ok: true,
       email: buildDecisionEmail(tx, purchase, RefundStatus.Approved, note),
+      notifications: buildDecisionNotifications(
+        tx,
+        refundRequestId,
+        purchase,
+        platformAdminId,
+        { decision: "approved", ended, note }
+      ),
     };
   });
 }
@@ -779,6 +858,13 @@ export function declineRefundRequest(
         found.purchase,
         RefundStatus.Declined,
         trimmedNote
+      ),
+      notifications: buildDecisionNotifications(
+        tx,
+        refundRequestId,
+        found.purchase,
+        platformAdminId,
+        { decision: "declined", note: trimmedNote }
       ),
     };
   });

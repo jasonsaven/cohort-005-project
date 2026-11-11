@@ -1,0 +1,1 @@
+Your refund on **{{ data.courseTitle }}** was declined: "{{ data.decisionNote }}" You can raise a new Refund Request.
