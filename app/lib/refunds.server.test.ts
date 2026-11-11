@@ -502,3 +502,95 @@ describe("listing Refund Requests", () => {
     ]);
   });
 });
+
+describe("the Notifications a raised Refund Request sends", () => {
+  function addPlatformAdmin(name: string) {
+    return db
+      .insert(schema.users)
+      .values({
+        name,
+        email: `${name.toLowerCase()}@example.com`,
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+  }
+
+  function raiseOk(purchaseId: number, buyerId: number, reason = "Nope.") {
+    const result = raiseRefundRequest(db, purchaseId, buyerId, reason, NOW);
+    if (!result.ok) throw new Error(result.error);
+    return result;
+  }
+
+  it("tells every Platform Admin that a Refund Request was raised", () => {
+    const sam = addPlatformAdmin("Sam");
+    const purchase = buyForSelf(base.user.id);
+
+    const { notifications } = raiseOk(purchase.id, base.user.id);
+
+    expect(notifications).toHaveLength(1);
+    expect(notifications[0].kind).toBe("refund-request-raised");
+    expect(notifications[0].recipients.map((r) => r.id).sort()).toEqual(
+      [platformAdmin.id, sam.id].sort()
+    );
+  });
+
+  it("leaves out a buyer who is a Platform Admin themselves", () => {
+    const sam = addPlatformAdmin("Sam");
+    const purchase = buyForSelf(sam.id);
+
+    const { notifications } = raiseOk(purchase.id, sam.id);
+
+    expect(notifications.flatMap((n) => n.recipients.map((r) => r.id))).toEqual(
+      [platformAdmin.id]
+    );
+  });
+
+  it("sends nothing when the only Platform Admin raised it", () => {
+    const purchase = buyForSelf(platformAdmin.id);
+
+    const { notifications } = raiseOk(purchase.id, platformAdmin.id);
+
+    expect(notifications).toEqual([]);
+  });
+
+  it("names the buyer, the course, the kind of Purchase and the reason", () => {
+    const { purchase } = buySeats(base.user.id, 2);
+
+    const { notifications } = raiseOk(
+      purchase.id,
+      base.user.id,
+      "The team was cancelled."
+    );
+
+    expect(notifications[0]).toMatchObject({
+      actor: { id: base.user.id, name: "Test User" },
+      data: {
+        buyerName: "Test User",
+        courseTitle: "Test Course",
+        purchaseKind: "team_licence",
+        reason: "The team was cancelled.",
+        url: "/admin/refunds",
+      },
+    });
+  });
+
+  it("keys the Notification on the Refund Request, so a retry doesn't notify twice", () => {
+    const purchase = buyForSelf(base.user.id);
+
+    const result = raiseOk(purchase.id, base.user.id);
+
+    expect(result.notifications[0].idempotencyKey).toBe(
+      `refund-request-raised:${result.refundRequestId}`
+    );
+  });
+
+  it("sends nothing when the Refund Request is refused", () => {
+    const purchase = buyForSelf(base.user.id, 20);
+
+    const result = raiseRefundRequest(db, purchase.id, base.user.id, "Nope.", NOW);
+
+    expect(result).toMatchObject({ ok: false, status: 403 });
+    expect(result).not.toHaveProperty("notifications");
+  });
+});

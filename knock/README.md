@@ -13,7 +13,7 @@ All three scripts need `KNOCK_SERVICE_TOKEN` in `.env`. It's for tooling only, a
 
 ## Categories
 
-Every workflow has exactly one category. People turn email on or off per category in Settings.
+Every workflow has exactly one category. People turn email on or off per category in Settings. A workflow can only name a category in Knock's preference category catalog; `npm run knock:push` creates the three below first (see `CATEGORIES` in `scripts/knock-workflows.sh`).
 
 | Category      | Notifications                                       |
 | ------------- | --------------------------------------------------- |

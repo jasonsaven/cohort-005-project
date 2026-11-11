@@ -25,6 +25,24 @@ knock() {
   node --env-file=.env node_modules/.bin/knock "$@"
 }
 
+# A workflow can only name a category that is in the account's preference
+# category catalog. The upsert is idempotent. Keep in step with knock/README.md.
+CATEGORIES=(refunds team discussions)
+
+ensure_categories() {
+  local token
+  token="$(node --env-file=.env -p 'process.env.KNOCK_SERVICE_TOKEN ?? ""')"
+  if [ -z "$token" ]; then
+    echo "KNOCK_SERVICE_TOKEN is not set in .env." >&2
+    exit 1
+  fi
+  for category in "${CATEGORIES[@]}"; do
+    curl -fsS -X PUT -o /dev/null \
+      -H "Authorization: Bearer $token" \
+      "https://control.knock.app/v1/preference_categories/$category"
+  done
+}
+
 has_workflows() {
   find "$WORKFLOWS_DIR" -mindepth 2 -maxdepth 2 -name workflow.json | grep -q .
 }
@@ -43,6 +61,7 @@ case "${1:-}" in
       echo "No workflows in $WORKFLOWS_DIR, nothing to push."
       exit 0
     fi
+    ensure_categories
     knock workflow push --all --workflows-dir="$WORKFLOWS_DIR" \
       --environment="$ENVIRONMENT" --commit \
       --commit-message="${2:-Push workflows from the repo}"

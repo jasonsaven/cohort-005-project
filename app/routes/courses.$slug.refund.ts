@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 import { parseFormData, parseParams } from "~/lib/validation";
 import { raiseRefundRequest } from "~/lib/refunds.server";
 import { sendEmail } from "~/lib/mailer.server";
+import { sendNotifications } from "~/lib/notifications.server";
 
 const refundParamsSchema = z.object({
   slug: z.string().min(1),
@@ -73,6 +74,9 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   await sendEmail(result.email);
+  // Best-effort and only after the write: a Knock failure is logged, and the
+  // Refund Request stays raised.
+  await sendNotifications(result.notifications);
 
   return redirect(result.kind === "team_licence" ? "/team" : "/settings");
 }

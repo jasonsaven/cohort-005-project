@@ -1,0 +1,1 @@
+<p><strong>{{ data.buyerName }}</strong> asked for a refund on {% if data.purchaseKind == "team_licence" %}a Team Licence for{% else %}their Individual Purchase of{% endif %} <strong>{{ data.courseTitle }}</strong>.</p><p>Their reason:</p><blockquote>{{ data.reason }}</blockquote><p><a href="{{ vars.app_url }}{{ data.url }}">Review it in the refunds queue</a></p>

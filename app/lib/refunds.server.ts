@@ -15,6 +15,7 @@ import {
   videoWatchEvents,
   LessonProgressStatus,
   RefundStatus,
+  UserRole,
 } from "~/db/schema";
 import { formatPrice } from "~/lib/utils";
 import {
@@ -23,6 +24,12 @@ import {
   REFUND_WINDOW_DAYS,
   type RuleBreak,
 } from "~/lib/refund-rules";
+import {
+  refundRequestRaised,
+  withRecipients,
+  type Notification,
+  type NotificationPerson,
+} from "~/lib/notifications";
 
 // ─── Refunds ───
 // Everything about Refund Requests: whether a Purchase may be refunded, raising
@@ -37,6 +44,7 @@ type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0];
 type Queryable = Db | Tx;
 
 type Purchase = typeof purchases.$inferSelect;
+type User = typeof users.$inferSelect;
 type Seat = typeof coupons.$inferSelect;
 
 // ─── Calendar days ───
@@ -351,8 +359,36 @@ export function getRefundOffer(
 export type Email = { to: string; subject: string; body: string };
 
 export type RaiseResult =
-  | { ok: true; refundRequestId: number; kind: PurchaseKind; email: Email }
+  | {
+      ok: true;
+      refundRequestId: number;
+      kind: PurchaseKind;
+      email: Email;
+      notifications: Notification[];
+    }
   | Failure;
+
+// ─── Who hears about Refund Requests ───
+
+function toPerson(user: User): NotificationPerson {
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    avatarUrl: user.avatarUrl,
+  };
+}
+
+function getPlatformAdmins(db: Queryable): NotificationPerson[] {
+  return db
+    .select()
+    .from(users)
+    .where(eq(users.role, UserRole.Admin))
+    .all()
+    .map(toPerson);
+}
+
+const REFUNDS_QUEUE_URL = "/admin/refunds";
 
 export function raiseRefundRequest(
   db: Db,
@@ -387,10 +423,26 @@ export function raiseRefundRequest(
     .returning()
     .get();
 
+  const kind = kindOf(getSeats(db, purchase.id));
+
   return {
     ok: true,
     refundRequestId: refundRequest.id,
-    kind: kindOf(getSeats(db, purchase.id)),
+    kind,
+    notifications: withRecipients([
+      refundRequestRaised(
+        refundRequest.id,
+        toPerson(buyer),
+        getPlatformAdmins(db),
+        {
+          buyerName: buyer.name,
+          courseTitle: course.title,
+          purchaseKind: kind,
+          reason,
+          url: REFUNDS_QUEUE_URL,
+        }
+      ),
+    ]),
     email: {
       to: buyer.email,
       subject: `Refund requested — ${course.title}`,
