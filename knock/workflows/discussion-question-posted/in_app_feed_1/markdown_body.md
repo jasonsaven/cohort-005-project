@@ -1,1 +1,1 @@
-**{{ data.studentName }}** asked a Question on **{{ data.lessonTitle }}** in **{{ data.courseTitle }}**
+**{{ data.studentName }}** asked a Discussion Question on **{{ data.lessonTitle }}** in **{{ data.courseTitle }}**

@@ -73,20 +73,24 @@ describe("shouldLoadMore", () => {
 
 describe("badgeText", () => {
   it("counts unseen Notifications", () => {
-    expect(badgeText(3, "ready")).toBe("3");
+    expect(badgeText(3, "ready", true)).toBe("3");
   });
 
   it("caps the count at 99+", () => {
-    expect(badgeText(99, "ready")).toBe("99");
-    expect(badgeText(100, "ready")).toBe("99+");
+    expect(badgeText(99, "ready", true)).toBe("99");
+    expect(badgeText(100, "ready", true)).toBe("99+");
   });
 
   it("shows no badge when nothing is unseen", () => {
-    expect(badgeText(0, "ready")).toBeNull();
+    expect(badgeText(0, "ready", true)).toBeNull();
   });
 
   it("shows no badge when Knock can't be reached", () => {
-    expect(badgeText(3, "error")).toBeNull();
-    expect(badgeText(3, "stale")).toBeNull();
+    expect(badgeText(3, "error", true)).toBeNull();
+    expect(badgeText(3, "stale", true)).toBeNull();
+  });
+
+  it("shows no badge while the real-time connection is down", () => {
+    expect(badgeText(3, "ready", false)).toBeNull();
   });
 });

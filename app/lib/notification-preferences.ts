@@ -3,12 +3,13 @@ import type {
   SetPreferencesProperties,
 } from "@knocklabs/client";
 import { UserRole } from "~/db/schema";
+import type { NotificationCategory } from "~/lib/notifications";
+
+export type { NotificationCategory };
 
 // ─── Notification preferences ───
 // People turn email on or off per Notification category in Settings. The
 // preferences live in Knock; Cadence's database stores none of them.
-
-export type NotificationCategory = "refunds" | "team" | "discussions";
 
 export function notificationCategoriesFor(person: {
   role: UserRole;

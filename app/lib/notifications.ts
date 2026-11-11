@@ -9,8 +9,9 @@ import { z } from "zod";
 // write has committed. Nothing here talks to Knock, so the Notification Feed
 // in the browser uses the same catalogue to read each row's payload.
 //
-// Adding a kind: add its payload schema and sentence to `catalogue`, a type
-// and builder below, and its workflow under knock/workflows/.
+// Adding a kind: add its category, payload schema and sentence to
+// `catalogue`, a builder below, and its workflow under knock/workflows/ in the
+// same category (notifications.test.ts checks they agree).
 
 /** Someone a Notification is about or for. Sent to Knock inline on every trigger. */
 export type NotificationPerson = {
@@ -33,6 +34,14 @@ export type NotificationFeedConfig = {
 
 // ─── The catalogue ───
 
+/**
+ * People turn email on or off per category in Settings. Every kind belongs to
+ * exactly one. `npm run knock:push` creates them in Knock first.
+ */
+export const NOTIFICATION_CATEGORIES = ["refunds", "team", "discussions"] as const;
+
+export type NotificationCategory = (typeof NOTIFICATION_CATEGORIES)[number];
+
 /** How a Notification Feed row reads. */
 export type NotificationDescription = { text: string; detail?: string };
 
@@ -40,10 +49,12 @@ type FeedRow = NotificationDescription & { url: string };
 
 // Every payload carries `url`, the page the Notification is about.
 function kind<Data extends z.ZodObject<{ url: z.ZodString }>>(
+  category: NotificationCategory,
   data: Data,
   describe: (data: z.infer<Data>) => NotificationDescription
 ) {
   return {
+    category,
     data,
     read(payload: unknown): FeedRow | null {
       const parsed = data.safeParse(payload);
@@ -56,6 +67,7 @@ function kind<Data extends z.ZodObject<{ url: z.ZodString }>>(
 const catalogue = {
   // N1: a buyer raised a Refund Request.
   "refund-request-raised": kind(
+    "refunds",
     z.object({
       buyerName: z.string(),
       courseTitle: z.string(),
@@ -74,6 +86,7 @@ const catalogue = {
   // N2: the buyer's Refund Request was approved. Feed only: the buyer already
   // gets the decision email from Postmark.
   "refund-request-approved": kind(
+    "refunds",
     z.object({
       courseTitle: z.string(),
       // What the approval ended. Nothing, for an Individual Purchase whose
@@ -94,6 +107,7 @@ const catalogue = {
 
   // N3: the buyer's Refund Request was declined. Feed only, like N2.
   "refund-request-declined": kind(
+    "refunds",
     z.object({
       courseTitle: z.string(),
       decisionNote: z.string(),
@@ -107,6 +121,7 @@ const catalogue = {
 
   // N7: another Platform Admin decided a Refund Request.
   "refund-request-decided": kind(
+    "refunds",
     z.object({
       deciderName: z.string(),
       decision: z.enum(["approved", "declined"]),
@@ -120,6 +135,7 @@ const catalogue = {
   ),
   // N4: a Student claimed a Seat on a Team Licence.
   "seat-claimed": kind(
+    "team",
     z.object({
       studentName: z.string(),
       courseTitle: z.string(),
@@ -133,6 +149,7 @@ const catalogue = {
   ),
   // N5: a Student posted a Discussion Question on the Instructor's course.
   "discussion-question-posted": kind(
+    "discussions",
     z.object({
       studentName: z.string(),
       lessonTitle: z.string(),
@@ -140,12 +157,13 @@ const catalogue = {
       url: z.string(),
     }),
     (data) => ({
-      text: `${data.studentName} asked a Question on ${data.lessonTitle} in ${data.courseTitle}`,
+      text: `${data.studentName} asked a Discussion Question on ${data.lessonTitle} in ${data.courseTitle}`,
     })
   ),
   // N6: someone posted a Discussion Reply. `answered` when the reply is from
-  // staff (the course's Instructor or a Platform Admin).
+  // the course's Instructor or a Platform Admin.
   "discussion-reply-posted": kind(
+    "discussions",
     z.object({
       replierName: z.string(),
       lessonTitle: z.string(),
@@ -155,7 +173,7 @@ const catalogue = {
     }),
     (data) => ({
       text: data.answered
-        ? `${data.replierName} answered your Question on ${data.lessonTitle}`
+        ? `${data.replierName} answered your Discussion Question on ${data.lessonTitle}`
         : `${data.replierName} replied to your comment on ${data.lessonTitle}`,
     })
   ),
@@ -163,7 +181,16 @@ const catalogue = {
 
 export type NotificationKind = keyof typeof catalogue;
 
-type DataOf<Kind extends NotificationKind> = z.infer<
+export const NOTIFICATION_KINDS = Object.keys(catalogue) as NotificationKind[];
+
+export function notificationCategoryOf(
+  kind: NotificationKind
+): NotificationCategory {
+  return catalogue[kind].category;
+}
+
+/** The payload a kind's workflow is triggered with. */
+export type NotificationData<Kind extends NotificationKind> = z.infer<
   (typeof catalogue)[Kind]["data"]
 >;
 
@@ -173,61 +200,52 @@ type NotificationOf<Kind extends NotificationKind> = {
   actor: NotificationPerson;
   /** Built from the source record, so a retried action doesn't notify twice. */
   idempotencyKey: string;
-  data: DataOf<Kind>;
+  data: NotificationData<Kind>;
 };
 
-export type RefundRequestRaised = NotificationOf<"refund-request-raised">;
-
-export type RefundRequestApproved = NotificationOf<"refund-request-approved">;
-export type RefundRequestDeclined = NotificationOf<"refund-request-declined">;
-export type RefundRequestDecided = NotificationOf<"refund-request-decided">;
-
-export type SeatClaimed = NotificationOf<"seat-claimed">;
-
-export type DiscussionQuestionPosted =
-  NotificationOf<"discussion-question-posted">;
-
-export type DiscussionReplyPosted = NotificationOf<"discussion-reply-posted">;
-
-export type Notification =
-  | RefundRequestRaised
-  | RefundRequestApproved
-  | RefundRequestDeclined
-  | RefundRequestDecided
-  | SeatClaimed
-  | DiscussionQuestionPosted
-  | DiscussionReplyPosted;
+/** One Notification of any kind in the catalogue. */
+export type Notification = {
+  [Kind in NotificationKind]: NotificationOf<Kind>;
+}[NotificationKind];
 
 // ─── Builders ───
 // Every builder leaves the actor out of the recipients: nobody is told about
 // their own action.
 
+/**
+ * The database row a Notification comes from, and when it was written (an ISO
+ * timestamp). Ids alone repeat across databases that share one Knock
+ * environment (a reseed, another developer's copy), and Knock would drop the
+ * later trigger as a duplicate; the time keeps their keys apart.
+ */
+export type NotificationSource = { id: number; at: string };
+
 function notify<Kind extends NotificationKind>(
   kind: Kind,
-  sourceId: number,
+  source: NotificationSource,
   actor: NotificationPerson,
   recipients: NotificationPerson[],
-  data: DataOf<Kind>
+  data: NotificationData<Kind>
 ): NotificationOf<Kind> {
   return {
     kind,
     recipients: recipients.filter((recipient) => recipient.id !== actor.id),
     actor,
-    idempotencyKey: `${kind}:${sourceId}`,
+    idempotencyKey: `${kind}:${source.id}:${Date.parse(source.at)}`,
     data,
   };
 }
 
 /** N1. Goes to every Platform Admin but the buyer. */
 export function refundRequestRaised(
-  refundRequestId: number,
+  source: NotificationSource,
   buyer: NotificationPerson,
   platformAdmins: NotificationPerson[],
-  data: DataOf<"refund-request-raised">
-): RefundRequestRaised {
+  data: NotificationData<"refund-request-raised">
+): NotificationOf<"refund-request-raised"> {
   return notify(
     "refund-request-raised",
-    refundRequestId,
+    source,
     buyer,
     platformAdmins,
     data
@@ -236,14 +254,14 @@ export function refundRequestRaised(
 
 /** N2. Goes to the buyer, from the deciding Platform Admin. */
 export function refundRequestApproved(
-  refundRequestId: number,
+  source: NotificationSource,
   decider: NotificationPerson,
   buyer: NotificationPerson,
-  data: DataOf<"refund-request-approved">
-): RefundRequestApproved {
+  data: NotificationData<"refund-request-approved">
+): NotificationOf<"refund-request-approved"> {
   return notify(
     "refund-request-approved",
-    refundRequestId,
+    source,
     decider,
     [buyer],
     data
@@ -252,14 +270,14 @@ export function refundRequestApproved(
 
 /** N3. Goes to the buyer, from the deciding Platform Admin. */
 export function refundRequestDeclined(
-  refundRequestId: number,
+  source: NotificationSource,
   decider: NotificationPerson,
   buyer: NotificationPerson,
-  data: DataOf<"refund-request-declined">
-): RefundRequestDeclined {
+  data: NotificationData<"refund-request-declined">
+): NotificationOf<"refund-request-declined"> {
   return notify(
     "refund-request-declined",
-    refundRequestId,
+    source,
     decider,
     [buyer],
     data
@@ -268,14 +286,14 @@ export function refundRequestDeclined(
 
 /** N7. Goes to every Platform Admin but the decider. */
 export function refundRequestDecided(
-  refundRequestId: number,
+  source: NotificationSource,
   decider: NotificationPerson,
   platformAdmins: NotificationPerson[],
-  data: DataOf<"refund-request-decided">
-): RefundRequestDecided {
+  data: NotificationData<"refund-request-decided">
+): NotificationOf<"refund-request-decided"> {
   return notify(
     "refund-request-decided",
-    refundRequestId,
+    source,
     decider,
     platformAdmins,
     data
@@ -284,24 +302,24 @@ export function refundRequestDecided(
 
 /** N4. Goes to the Team Licence's Team Admin, unless they claimed the Seat. */
 export function seatClaimed(
-  seatId: number,
+  source: NotificationSource,
   student: NotificationPerson,
   teamAdmin: NotificationPerson,
-  data: DataOf<"seat-claimed">
-): SeatClaimed {
-  return notify("seat-claimed", seatId, student, [teamAdmin], data);
+  data: NotificationData<"seat-claimed">
+): NotificationOf<"seat-claimed"> {
+  return notify("seat-claimed", source, student, [teamAdmin], data);
 }
 
 /** N5. Goes to the course's Instructor, keyed by the Discussion Question's id. */
 export function discussionQuestionPosted(
-  commentId: number,
+  source: NotificationSource,
   student: NotificationPerson,
   instructor: NotificationPerson,
-  data: DataOf<"discussion-question-posted">
-): DiscussionQuestionPosted {
+  data: NotificationData<"discussion-question-posted">
+): NotificationOf<"discussion-question-posted"> {
   return notify(
     "discussion-question-posted",
-    commentId,
+    source,
     student,
     [instructor],
     data
@@ -310,14 +328,14 @@ export function discussionQuestionPosted(
 
 /** N6. Goes to the Discussion Question's author, keyed by the reply's id. */
 export function discussionReplyPosted(
-  commentId: number,
+  source: NotificationSource,
   replier: NotificationPerson,
   questionAuthor: NotificationPerson,
-  data: DataOf<"discussion-reply-posted">
-): DiscussionReplyPosted {
+  data: NotificationData<"discussion-reply-posted">
+): NotificationOf<"discussion-reply-posted"> {
   return notify(
     "discussion-reply-posted",
-    commentId,
+    source,
     replier,
     [questionAuthor],
     data

@@ -575,13 +575,15 @@ describe("the Notifications a raised Refund Request sends", () => {
     });
   });
 
-  it("keys the Notification on the Refund Request, so a retry doesn't notify twice", () => {
+  it("keys the Notification on the Refund Request and when it was raised, so a retry doesn't notify twice", () => {
     const purchase = buyForSelf(base.user.id);
 
     const result = raiseOk(purchase.id, base.user.id);
 
+    // The time keeps keys apart across databases that reuse the same ids
+    // (a reseed, or another dev's copy sharing the Knock environment).
     expect(result.notifications[0].idempotencyKey).toBe(
-      `refund-request-raised:${result.refundRequestId}`
+      `refund-request-raised:${result.refundRequestId}:${NOW.getTime()}`
     );
   });
 
@@ -645,7 +647,7 @@ describe("the Notifications a decided Refund Request sends", () => {
     expect(ofKind(notifications, "refund-request-approved")).toMatchObject({
       recipients: [{ id: base.user.id }],
       actor: { id: platformAdmin.id },
-      idempotencyKey: `refund-request-approved:${id}`,
+      idempotencyKey: `refund-request-approved:${id}:${NOW.getTime()}`,
       data: {
         courseTitle: "Test Course",
         ended: "enrollment",
@@ -679,7 +681,7 @@ describe("the Notifications a decided Refund Request sends", () => {
     expect(ofKind(notifications, "refund-request-declined")).toMatchObject({
       recipients: [{ id: priya.id }],
       actor: { id: platformAdmin.id },
-      idempotencyKey: `refund-request-declined:${id}`,
+      idempotencyKey: `refund-request-declined:${id}:${NOW.getTime()}`,
       data: {
         courseTitle: "Test Course",
         decisionNote: "The Seats are in use.",
@@ -698,7 +700,7 @@ describe("the Notifications a decided Refund Request sends", () => {
     expect(ofKind(notifications, "refund-request-decided")).toMatchObject({
       recipients: [{ id: sam.id }],
       actor: { id: platformAdmin.id },
-      idempotencyKey: `refund-request-decided:${id}`,
+      idempotencyKey: `refund-request-decided:${id}:${NOW.getTime()}`,
       data: {
         deciderName: "Pat Admin",
         decision: "declined",

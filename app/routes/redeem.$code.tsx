@@ -123,13 +123,7 @@ export async function action({ params, request }: Route.ActionArgs) {
   }
 
   const userCountry = await resolveCountry(request);
-  const result = claimSeat(
-    db,
-    code,
-    currentUserId,
-    userCountry ?? "",
-    new Date()
-  );
+  const result = claimSeat(db, code, currentUserId, userCountry, new Date());
 
   if (!result.ok) {
     return data({ error: result.error }, { status: 400 });

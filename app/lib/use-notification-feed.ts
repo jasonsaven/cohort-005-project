@@ -4,8 +4,8 @@ import Knock, {
   type FeedItem,
   type FeedStoreState,
 } from "@knocklabs/client";
-import { z } from "zod";
 import type { NotificationFeedConfig } from "~/lib/notifications";
+import { authenticateKnock } from "~/lib/knock-auth";
 import {
   readFeedStatus,
   type FeedNetworkStatus,
@@ -20,23 +20,6 @@ import {
 // so the rest of the page keeps working.
 
 const PAGE_SIZE = 20;
-const REFRESH_BEFORE_EXPIRY_MS = 5 * 60_000;
-
-const freshTokenSchema = z.object({ userId: z.string(), userToken: z.string() });
-
-async function fetchFreshToken(userId: string): Promise<string | undefined> {
-  try {
-    const response = await fetch("/api/notification-token");
-    if (!response.ok) return undefined;
-    const parsed = freshTokenSchema.safeParse(await response.json());
-    // A different user means the session switched; the layout will rebuild
-    // the feed for them, so don't hand this connection their token.
-    if (!parsed.success || parsed.data.userId !== userId) return undefined;
-    return parsed.data.userToken;
-  } catch {
-    return undefined;
-  }
-}
 
 export type NotificationFeedState = {
   status: FeedStatus;
@@ -72,12 +55,7 @@ export function useNotificationFeed(
     let userFeed: Feed;
     try {
       knock = new Knock(publicApiKey);
-      knock.authenticate({ id: userId }, userToken, {
-        // Our server identifies users inline when it triggers a workflow.
-        identificationStrategy: "skip",
-        onUserTokenExpiring: () => fetchFreshToken(userId),
-        timeBeforeExpirationInMs: REFRESH_BEFORE_EXPIRY_MS,
-      });
+      authenticateKnock(knock, userId, userToken);
       userFeed = knock.feeds.initialize(feedChannelId, {
         archived: "exclude",
         page_size: PAGE_SIZE,

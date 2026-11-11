@@ -50,12 +50,15 @@ export function shouldLoadMore(
 
 /**
  * What the bell's badge says, or null for no badge. When Knock can't be
- * reached the count may be wrong, so the bell shows none.
+ * reached, or its real-time connection is down, the count may be wrong, so
+ * the bell shows none.
  */
 export function badgeText(
   unseenCount: number,
-  status: FeedStatus
+  status: FeedStatus,
+  isLive: boolean
 ): string | null {
-  if (status === "error" || status === "stale" || unseenCount <= 0) return null;
+  if (!isLive || status === "error" || status === "stale") return null;
+  if (unseenCount <= 0) return null;
   return unseenCount > 99 ? "99+" : String(unseenCount);
 }

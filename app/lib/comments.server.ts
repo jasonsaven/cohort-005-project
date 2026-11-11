@@ -7,6 +7,7 @@ import {
   users,
   UserRole,
 } from "~/db/schema";
+import type { Db } from "~/db/types";
 import { MAX_COMMENT_LENGTH, MIN_COMMENT_LENGTH } from "~/lib/comments";
 import {
   discussionQuestionPosted,
@@ -14,7 +15,7 @@ import {
   withRecipients,
   type Notification,
 } from "~/lib/notifications";
-import { toPerson, type Db } from "~/lib/refunds.server";
+import { getUser, toPerson } from "~/lib/users.server";
 
 // ─── Comments ───
 // Posting a comment on a lesson: a Discussion Question, or a Discussion Reply
@@ -91,22 +92,21 @@ export function postComment(
       .returning()
       .get();
 
-    const getUser = (id: number) =>
-      tx.select().from(users).where(eq(users.id, id)).get();
-    const author = getUser(userId);
+    const author = getUser(tx, userId);
     const url = `/courses/${lesson.courseSlug}/lessons/${lesson.id}`;
-    // Staff are the course's Instructor and Platform Admins. Their top-level
-    // comments aren't Discussion Questions, and their replies are answers.
-    const isStaff = (user: User) =>
+    const source = { id: comment.id, at: comment.createdAt };
+    // A top-level comment by the course's Instructor or a Platform Admin
+    // isn't a Discussion Question, and their Discussion Replies are answers.
+    const isInstructorOrPlatformAdmin = (user: User) =>
       user.role === UserRole.Admin || user.id === lesson.instructorId;
 
     const notifications: Notification[] = [];
-    if (author && !parent && !isStaff(author)) {
-      const instructor = getUser(lesson.instructorId);
+    if (author && !parent && !isInstructorOrPlatformAdmin(author)) {
+      const instructor = getUser(tx, lesson.instructorId);
       if (instructor) {
         notifications.push(
           discussionQuestionPosted(
-            comment.id,
+            source,
             toPerson(author),
             toPerson(instructor),
             {
@@ -120,18 +120,18 @@ export function postComment(
       }
     }
     if (author && parent) {
-      const questionAuthor = getUser(parent.userId);
+      const questionAuthor = getUser(tx, parent.userId);
       if (questionAuthor) {
         notifications.push(
           discussionReplyPosted(
-            comment.id,
+            source,
             toPerson(author),
             toPerson(questionAuthor),
             {
               replierName: author.name,
               lessonTitle: lesson.title,
               courseTitle: lesson.courseTitle,
-              answered: isStaff(author),
+              answered: isInstructorOrPlatformAdmin(author),
               url,
             }
           )

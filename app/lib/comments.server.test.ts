@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { postComment } from "./comments.server";
@@ -154,7 +154,7 @@ describe("postComment's Notifications", () => {
           email: "test@example.com",
           avatarUrl: null,
         },
-        idempotencyKey: `discussion-question-posted:${result.comment.id}`,
+        idempotencyKey: `discussion-question-posted:${result.comment.id}:${Date.parse(result.comment.createdAt)}`,
         data: {
           studentName: "Test User",
           lessonTitle: "Lesson 1",
@@ -197,7 +197,7 @@ describe("postComment's Notifications", () => {
           email: "classmate@example.com",
           avatarUrl: null,
         },
-        idempotencyKey: `discussion-reply-posted:${result.comment.id}`,
+        idempotencyKey: `discussion-reply-posted:${result.comment.id}:${Date.parse(result.comment.createdAt)}`,
         data: {
           replierName: "Classmate",
           lessonTitle: "Lesson 1",
@@ -261,3 +261,32 @@ function notificationsFor(userId: number, parentId: number | null) {
   if (!result.ok) throw new Error(result.error);
   return result.notifications;
 }
+
+describe("postComment's idempotency keys", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("gives comments with the same id in two databases different keys", () => {
+    // A reseeded database, or another dev's copy sharing the Knock
+    // environment, hands out the same comment ids again.
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-10-06T12:00:00Z"));
+    const first = postComment(db, base.user.id, lessonId, null, "Why?");
+
+    db = createTestDb();
+    base = seedBaseData(db);
+    lessonId = addLesson(1);
+    vi.setSystemTime(new Date("2026-10-07T12:00:00Z"));
+    const second = postComment(db, base.user.id, lessonId, null, "Why?");
+    if (!first.ok || !second.ok) throw new Error("Could not post");
+
+    expect(second.comment.id).toBe(first.comment.id);
+    expect(first.notifications[0].idempotencyKey).toBe(
+      `discussion-question-posted:${first.comment.id}:${Date.parse("2026-10-06T12:00:00Z")}`
+    );
+    expect(second.notifications[0].idempotencyKey).toBe(
+      `discussion-question-posted:${second.comment.id}:${Date.parse("2026-10-07T12:00:00Z")}`
+    );
+  });
+});

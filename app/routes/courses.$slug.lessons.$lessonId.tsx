@@ -876,8 +876,10 @@ export async function action({ params, request }: Route.ActionArgs) {
           parsed.data.parentId ?? null,
           parsed.data.body
         );
+        // The comment form already stops empty and too-long comments, so
+        // this only fails on a tampered or stale request.
         if (!result.ok) {
-          return { ok: false, error: result.error };
+          throw data(result.error, { status: 400 });
         }
         // Best-effort and only after the write: a Knock failure is logged,
         // and the comment stays posted.

@@ -26,7 +26,8 @@ knock() {
 }
 
 # A workflow can only name a category that is in the account's preference
-# category catalog. The upsert is idempotent. Keep in step with knock/README.md.
+# category catalog. The upsert is idempotent. Keep in step with
+# NOTIFICATION_CATEGORIES in app/lib/notifications.ts (a test checks).
 CATEGORIES=(refunds team discussions)
 
 ensure_categories() {

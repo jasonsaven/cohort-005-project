@@ -3,7 +3,7 @@ import { describe, it, expect, beforeEach } from "vitest";
 import { createTestDb, seedBaseData } from "~/test/setup";
 import * as schema from "~/db/schema";
 import { RefundStatus, UserRole } from "~/db/schema";
-import { claimSeat } from "./seats.server";
+import { claimSeat, isTeamAdmin } from "./seats.server";
 
 type TestDb = ReturnType<typeof createTestDb>;
 
@@ -75,7 +75,7 @@ describe("claimSeat", () => {
   it("enrolls the Student in the course", () => {
     const { seats } = buySeats(2);
 
-    const result = claimSeat(db, seats[0].code, student.id, "", NOW);
+    const result = claimSeat(db, seats[0].code, student.id, null, NOW);
 
     expect(result).toMatchObject({
       ok: true,
@@ -86,7 +86,7 @@ describe("claimSeat", () => {
   it("refuses a code that isn't a Seat", () => {
     expect(claimSeat(db, "NO-SUCH-CODE", student.id, "", NOW)).toEqual({
       ok: false,
-      error: "Coupon not found",
+      error: "Seat not found",
     });
   });
 
@@ -95,9 +95,9 @@ describe("claimSeat", () => {
     const other = addUser("Olive");
     claimSeat(db, seats[0].code, other.id, "", NOW);
 
-    expect(claimSeat(db, seats[0].code, student.id, "", NOW)).toEqual({
+    expect(claimSeat(db, seats[0].code, student.id, null, NOW)).toEqual({
       ok: false,
-      error: "Coupon has already been redeemed",
+      error: "This Seat has already been claimed",
     });
   });
 
@@ -105,7 +105,7 @@ describe("claimSeat", () => {
     const { purchase, seats } = buySeats(2);
     addRefundRequest(purchase.id, RefundStatus.Open);
 
-    expect(claimSeat(db, seats[0].code, student.id, "", NOW)).toEqual({
+    expect(claimSeat(db, seats[0].code, student.id, null, NOW)).toEqual({
       ok: false,
       error:
         "This seat can't be claimed right now. Ask the person who shared it with you.",
@@ -120,7 +120,7 @@ describe("claimSeat", () => {
       .where(eq(schema.coupons.purchaseId, purchase.id))
       .run();
 
-    expect(claimSeat(db, seats[0].code, student.id, "", NOW)).toEqual({
+    expect(claimSeat(db, seats[0].code, student.id, null, NOW)).toEqual({
       ok: false,
       error:
         "This seat is no longer available. Ask the person who shared it with you.",
@@ -129,7 +129,7 @@ describe("claimSeat", () => {
 
   it("refuses a Student who is already enrolled in the course", () => {
     const { seats } = buySeats(2);
-    claimSeat(db, seats[0].code, student.id, "", NOW);
+    claimSeat(db, seats[0].code, student.id, null, NOW);
 
     expect(claimSeat(db, seats[1].code, student.id, "", NOW)).toEqual({
       ok: false,
@@ -143,7 +143,17 @@ describe("claimSeat", () => {
     expect(claimSeat(db, seats[0].code, student.id, "US", NOW)).toEqual({
       ok: false,
       error:
-        "This coupon can only be redeemed from the same country as the purchaser",
+        "This Seat can only be claimed from the country it was bought in",
+    });
+  });
+
+  it("refuses a Student whose country isn't known when the Seat has a country price", () => {
+    const { seats } = buySeats(2, "IN");
+
+    expect(claimSeat(db, seats[0].code, student.id, null, NOW)).toEqual({
+      ok: false,
+      error:
+        "This Seat can only be claimed from the country it was bought in",
     });
   });
 
@@ -180,7 +190,7 @@ describe("claimSeat Notifications", () => {
           kind: "seat-claimed",
           recipients: [{ id: teamAdmin.id, name: "Tess" }],
           actor: { id: student.id, name: "Sam" },
-          idempotencyKey: `seat-claimed:${seats[2].id}`,
+          idempotencyKey: `seat-claimed:${seats[2].id}:${Date.parse(seats[2].createdAt)}`,
           data: {
             studentName: "Sam",
             courseTitle: base.course.title,
@@ -205,30 +215,53 @@ describe("claimSeat Notifications", () => {
     const { seats } = buySeats(1);
     claimSeat(db, seats[0].code, addUser("Ann").id, "", NOW);
 
-    const result = claimSeat(db, seats[0].code, student.id, "", NOW);
+    const result = claimSeat(db, seats[0].code, student.id, null, NOW);
 
     expect(result).toEqual({
       ok: false,
-      error: "Coupon has already been redeemed",
+      error: "This Seat has already been claimed",
     });
   });
 
   it("builds the same idempotency key for the same Seat", () => {
     const { seats } = buySeats(1);
-    const first = claimSeat(db, seats[0].code, student.id, "", NOW);
+    const first = claimSeat(db, seats[0].code, student.id, null, NOW);
     db.update(schema.coupons)
       .set({ redeemedByUserId: null, redeemedAt: null })
       .where(eq(schema.coupons.id, seats[0].id))
       .run();
     db.delete(schema.enrollments).run();
 
-    const second = claimSeat(db, seats[0].code, student.id, "", NOW);
+    const second = claimSeat(db, seats[0].code, student.id, null, NOW);
 
     expect(first.ok && first.notifications[0].idempotencyKey).toBe(
-      `seat-claimed:${seats[0].id}`
+      `seat-claimed:${seats[0].id}:${Date.parse(seats[0].createdAt)}`
     );
     expect(second.ok && second.notifications[0].idempotencyKey).toBe(
-      `seat-claimed:${seats[0].id}`
+      `seat-claimed:${seats[0].id}:${Date.parse(seats[0].createdAt)}`
     );
+  });
+});
+
+describe("isTeamAdmin", () => {
+  it("is true for someone who bought a Team Licence", () => {
+    buySeats(2);
+
+    expect(isTeamAdmin(db, teamAdmin.id)).toBe(true);
+  });
+
+  it("is false for someone who only made an Individual Purchase", () => {
+    db.insert(schema.purchases)
+      .values({ userId: student.id, courseId: base.course.id, amountPaid: 4900 })
+      .run();
+
+    expect(isTeamAdmin(db, student.id)).toBe(false);
+  });
+
+  it("is false for a Student who claimed a Seat", () => {
+    const { seats } = buySeats(2);
+    claimSeat(db, seats[0].code, student.id, null, NOW);
+
+    expect(isTeamAdmin(db, student.id)).toBe(false);
   });
 });

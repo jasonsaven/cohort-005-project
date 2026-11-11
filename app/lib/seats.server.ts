@@ -1,10 +1,8 @@
 import { and, eq } from "drizzle-orm";
-import { coupons, courses, enrollments, purchases, users } from "~/db/schema";
-import {
-  getSeatAvailability,
-  toPerson,
-  type Db,
-} from "~/lib/refunds.server";
+import { coupons, courses, enrollments, purchases } from "~/db/schema";
+import type { Db, Queryable } from "~/db/types";
+import { getSeatAvailability } from "~/lib/refunds.server";
+import { getUser, toPerson } from "~/lib/users.server";
 import {
   seatClaimed,
   withRecipients,
@@ -22,6 +20,20 @@ export const SEAT_REFUNDED =
 
 const TEAM_PAGE_URL = "/team";
 
+/**
+ * Whether this person is a Team Admin: they bought a Team Licence, the
+ * Purchase that granted Seats. The same person N4 (`seat-claimed`) goes to.
+ */
+export function isTeamAdmin(db: Queryable, userId: number): boolean {
+  const seat = db
+    .select({ id: coupons.id })
+    .from(coupons)
+    .innerJoin(purchases, eq(coupons.purchaseId, purchases.id))
+    .where(eq(purchases.userId, userId))
+    .get();
+  return seat !== undefined;
+}
+
 export type ClaimSeatResult =
   | {
       ok: true;
@@ -32,24 +44,24 @@ export type ClaimSeatResult =
 
 /**
  * Claims the Seat with this code for a Student, giving them an Enrollment.
- * `userCountry` is where the Student is now; a Seat bought with a country
- * price can only be claimed from that country.
+ * `userCountry` is where the Student is now, or null if that isn't known; a
+ * Seat bought with a country price can only be claimed from that country.
  */
 export function claimSeat(
   db: Db,
   code: string,
   userId: number,
-  userCountry: string,
+  userCountry: string | null,
   now: Date
 ): ClaimSeatResult {
   return db.transaction((tx): ClaimSeatResult => {
     const seat = tx.select().from(coupons).where(eq(coupons.code, code)).get();
     if (!seat) {
-      return { ok: false, error: "Coupon not found" };
+      return { ok: false, error: "Seat not found" };
     }
 
     if (seat.redeemedByUserId !== null) {
-      return { ok: false, error: "Coupon has already been redeemed" };
+      return { ok: false, error: "This Seat has already been claimed" };
     }
 
     const availability = getSeatAvailability(tx, seat);
@@ -82,8 +94,7 @@ export function claimSeat(
     if (purchase?.country && purchase.country !== userCountry) {
       return {
         ok: false,
-        error:
-          "This coupon can only be redeemed from the same country as the purchaser",
+        error: "This Seat can only be claimed from the country it was bought in",
       };
     }
 
@@ -104,10 +115,8 @@ export function claimSeat(
       .from(coupons)
       .where(eq(coupons.purchaseId, seat.purchaseId))
       .all();
-    const student = tx.select().from(users).where(eq(users.id, userId)).get();
-    const teamAdmin = purchase
-      ? tx.select().from(users).where(eq(users.id, purchase.userId)).get()
-      : undefined;
+    const student = getUser(tx, userId);
+    const teamAdmin = purchase ? getUser(tx, purchase.userId) : undefined;
     const course = tx
       .select()
       .from(courses)
@@ -117,15 +126,20 @@ export function claimSeat(
     const notifications =
       student && teamAdmin && course
         ? withRecipients([
-            seatClaimed(seat.id, toPerson(student), toPerson(teamAdmin), {
-              studentName: student.name,
-              courseTitle: course.title,
-              claimedSeats: licenceSeats.filter(
-                (s) => s.redeemedByUserId !== null
-              ).length,
-              totalSeats: licenceSeats.length,
-              url: TEAM_PAGE_URL,
-            }),
+            seatClaimed(
+              { id: seat.id, at: seat.createdAt },
+              toPerson(student),
+              toPerson(teamAdmin),
+              {
+                studentName: student.name,
+                courseTitle: course.title,
+                claimedSeats: licenceSeats.filter(
+                  (s) => s.redeemedByUserId !== null
+                ).length,
+                totalSeats: licenceSeats.length,
+                url: TEAM_PAGE_URL,
+              }
+            ),
           ])
         : [];
 

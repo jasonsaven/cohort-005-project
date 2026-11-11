@@ -3,6 +3,7 @@ import Knock, { type PreferenceSet } from "@knocklabs/client";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader } from "~/components/ui/card";
 import type { NotificationFeedConfig } from "~/lib/notifications";
+import { authenticateKnock } from "~/lib/knock-auth";
 import {
   isEmailOn,
   withEmail,
@@ -50,9 +51,7 @@ export function NotificationPreferencesCard({
 
   useEffect(() => {
     const knock = new Knock(publicApiKey);
-    knock.authenticate({ id: userId }, userToken, {
-      identificationStrategy: "skip",
-    });
+    authenticateKnock(knock, userId, userToken);
     knockRef.current = knock;
     let cancelled = false;
     setState({ status: "loading" });
@@ -72,7 +71,10 @@ export function NotificationPreferencesCard({
       knockRef.current = null;
       knock.logout();
     };
-  }, [publicApiKey, userId, userToken]);
+    // The token only seeds the client, which refreshes it itself. A newer
+    // token from a Settings revalidation shouldn't reload the card.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [publicApiKey, userId]);
 
   async function setEmail(category: NotificationCategory, on: boolean) {
     const knock = knockRef.current;

@@ -10,19 +10,14 @@ import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Label } from "~/components/ui/label";
 import { Textarea } from "~/components/ui/textarea";
-import {
-  UserRole,
-  RefundStatus,
-  TeamMemberRole,
-  teamMembers,
-  users,
-} from "~/db/schema";
+import { UserRole, RefundStatus, users } from "~/db/schema";
 import { AlertTriangle } from "lucide-react";
 import { data, isRouteErrorResponse, Link } from "react-router";
 import { db } from "~/db";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
+import { isTeamAdmin } from "~/lib/seats.server";
 import { getNotificationFeedConfig } from "~/lib/notifications.server";
 import { notificationCategoriesFor } from "~/lib/notification-preferences";
 import { NotificationPreferencesCard } from "~/components/notification-preferences-card";
@@ -60,24 +55,14 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
-  const isTeamAdmin = !!db
-    .select({ id: teamMembers.id })
-    .from(teamMembers)
-    .where(
-      and(
-        eq(teamMembers.userId, currentUserId),
-        eq(teamMembers.role, TeamMemberRole.Admin)
-      )
-    )
-    .get();
-
   return {
     notifications: {
       // Null without Knock keys, which hides the card like the bell.
       config: await getNotificationFeedConfig(currentUserId),
       categories: notificationCategoriesFor({
         role: currentUser.role,
-        isTeamAdmin,
+        // The same Team Admin N4 (`seat-claimed`) goes to.
+        isTeamAdmin: isTeamAdmin(db, currentUserId),
       }),
     },
     user: {

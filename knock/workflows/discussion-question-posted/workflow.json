@@ -15,7 +15,7 @@
     {
       "type": "channel",
       "template": {
-        "subject": "New Question on {{ data.lessonTitle }} — {{ data.courseTitle }}",
+        "subject": "New Discussion Question on {{ data.lessonTitle }} — {{ data.courseTitle }}",
         "settings": {
           "layout_key": "default",
           "attachment_key": "attachments"

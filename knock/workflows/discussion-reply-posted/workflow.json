@@ -15,7 +15,7 @@
     {
       "type": "channel",
       "template": {
-        "subject": "{% if data.answered %}Your Question was answered{% else %}New reply to your comment{% endif %} — {{ data.lessonTitle }}",
+        "subject": "{% if data.answered %}Your Discussion Question was answered{% else %}New reply to your comment{% endif %} — {{ data.lessonTitle }}",
         "settings": {
           "layout_key": "default",
           "attachment_key": "attachments"

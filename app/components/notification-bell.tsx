@@ -120,7 +120,7 @@ export function NotificationBell({
   const listRef = useRef<HTMLDivElement>(null);
 
   const rows = rowsOf(feed.items);
-  const badge = badgeText(feed.unseenCount, feed.status);
+  const badge = badgeText(feed.unseenCount, feed.status, feed.isLive);
   const hasUnread =
     badge !== null || rows.some(({ item }) => !item.read_at);
   const canMarkAllAsRead =

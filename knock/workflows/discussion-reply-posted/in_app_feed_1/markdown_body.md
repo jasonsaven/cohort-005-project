@@ -1,1 +1,1 @@
-**{{ data.replierName }}** {% if data.answered %}answered your Question{% else %}replied to your comment{% endif %} on **{{ data.lessonTitle }}**
+**{{ data.replierName }}** {% if data.answered %}answered your Discussion Question{% else %}replied to your comment{% endif %} on **{{ data.lessonTitle }}**
