@@ -71,6 +71,34 @@ const catalogue = {
       detail: data.reason,
     })
   ),
+  // N5: a Student posted a Discussion Question on the Instructor's course.
+  "discussion-question-posted": kind(
+    z.object({
+      studentName: z.string(),
+      lessonTitle: z.string(),
+      courseTitle: z.string(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: `${data.studentName} asked a Question on ${data.lessonTitle} in ${data.courseTitle}`,
+    })
+  ),
+  // N6: someone posted a Discussion Reply. `answered` when the reply is from
+  // staff (the course's Instructor or a Platform Admin).
+  "discussion-reply-posted": kind(
+    z.object({
+      replierName: z.string(),
+      lessonTitle: z.string(),
+      courseTitle: z.string(),
+      answered: z.boolean(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: data.answered
+        ? `${data.replierName} answered your Question on ${data.lessonTitle}`
+        : `${data.replierName} replied to your comment on ${data.lessonTitle}`,
+    })
+  ),
 };
 
 export type NotificationKind = keyof typeof catalogue;
@@ -90,7 +118,15 @@ type NotificationOf<Kind extends NotificationKind> = {
 
 export type RefundRequestRaised = NotificationOf<"refund-request-raised">;
 
-export type Notification = RefundRequestRaised;
+export type DiscussionQuestionPosted =
+  NotificationOf<"discussion-question-posted">;
+
+export type DiscussionReplyPosted = NotificationOf<"discussion-reply-posted">;
+
+export type Notification =
+  | RefundRequestRaised
+  | DiscussionQuestionPosted
+  | DiscussionReplyPosted;
 
 // ─── Builders ───
 // Every builder leaves the actor out of the recipients: nobody is told about
@@ -124,6 +160,38 @@ export function refundRequestRaised(
     refundRequestId,
     buyer,
     platformAdmins,
+    data
+  );
+}
+
+/** N5. Goes to the course's Instructor, keyed by the Discussion Question's id. */
+export function discussionQuestionPosted(
+  commentId: number,
+  student: NotificationPerson,
+  instructor: NotificationPerson,
+  data: DataOf<"discussion-question-posted">
+): DiscussionQuestionPosted {
+  return notify(
+    "discussion-question-posted",
+    commentId,
+    student,
+    [instructor],
+    data
+  );
+}
+
+/** N6. Goes to the Discussion Question's author, keyed by the reply's id. */
+export function discussionReplyPosted(
+  commentId: number,
+  replier: NotificationPerson,
+  questionAuthor: NotificationPerson,
+  data: DataOf<"discussion-reply-posted">
+): DiscussionReplyPosted {
+  return notify(
+    "discussion-reply-posted",
+    commentId,
+    replier,
+    [questionAuthor],
     data
   );
 }
