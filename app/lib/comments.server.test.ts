@@ -131,3 +131,133 @@ describe("postComment", () => {
     });
   });
 });
+
+describe("postComment's Notifications", () => {
+  it("tells the course's Instructor about a Student's Discussion Question", () => {
+    const result = postComment(db, base.user.id, lessonId, null, "Why?");
+    if (!result.ok) throw new Error(result.error);
+
+    expect(result.notifications).toEqual([
+      {
+        kind: "discussion-question-posted",
+        recipients: [
+          {
+            id: base.instructor.id,
+            name: "Test Instructor",
+            email: "instructor@example.com",
+            avatarUrl: null,
+          },
+        ],
+        actor: {
+          id: base.user.id,
+          name: "Test User",
+          email: "test@example.com",
+          avatarUrl: null,
+        },
+        idempotencyKey: `discussion-question-posted:${result.comment.id}`,
+        data: {
+          studentName: "Test User",
+          lessonTitle: "Lesson 1",
+          courseTitle: "Test Course",
+          url: `/courses/test-course/lessons/${lessonId}`,
+        },
+      },
+    ]);
+  });
+
+  it("tells nobody about a top-level comment by the course's Instructor", () => {
+    expect(notificationsFor(base.instructor.id, null)).toEqual([]);
+  });
+
+  it("tells nobody about a top-level comment by a Platform Admin", () => {
+    expect(notificationsFor(addAdmin().id, null)).toEqual([]);
+  });
+
+  it("tells a Discussion Question's author about a Discussion Reply", () => {
+    const question = post(base.user.id, null, "Why?");
+    const classmate = addStudent();
+
+    const result = postComment(db, classmate.id, lessonId, question.id, "Hm.");
+    if (!result.ok) throw new Error(result.error);
+
+    expect(result.notifications).toEqual([
+      {
+        kind: "discussion-reply-posted",
+        recipients: [
+          {
+            id: base.user.id,
+            name: "Test User",
+            email: "test@example.com",
+            avatarUrl: null,
+          },
+        ],
+        actor: {
+          id: classmate.id,
+          name: "Classmate",
+          email: "classmate@example.com",
+          avatarUrl: null,
+        },
+        idempotencyKey: `discussion-reply-posted:${result.comment.id}`,
+        data: {
+          replierName: "Classmate",
+          lessonTitle: "Lesson 1",
+          courseTitle: "Test Course",
+          answered: false,
+          url: `/courses/test-course/lessons/${lessonId}`,
+        },
+      },
+    ]);
+  });
+
+  it("says the course's Instructor answered the Discussion Question", () => {
+    const question = post(base.user.id, null, "Why?");
+
+    expect(notificationsFor(base.instructor.id, question.id)).toMatchObject([
+      { kind: "discussion-reply-posted", data: { answered: true } },
+    ]);
+  });
+
+  it("says a Platform Admin answered the Discussion Question", () => {
+    const question = post(base.user.id, null, "Why?");
+
+    expect(notificationsFor(addAdmin().id, question.id)).toMatchObject([
+      { kind: "discussion-reply-posted", data: { answered: true } },
+    ]);
+  });
+
+  it("tells nobody when you reply to your own Discussion Question", () => {
+    const question = post(base.user.id, null, "Why?");
+
+    expect(notificationsFor(base.user.id, question.id)).toEqual([]);
+  });
+});
+
+function addStudent() {
+  return db
+    .insert(schema.users)
+    .values({
+      name: "Classmate",
+      email: "classmate@example.com",
+      role: schema.UserRole.Student,
+    })
+    .returning()
+    .get();
+}
+
+function addAdmin() {
+  return db
+    .insert(schema.users)
+    .values({
+      name: "Test Admin",
+      email: "admin@example.com",
+      role: schema.UserRole.Admin,
+    })
+    .returning()
+    .get();
+}
+
+function notificationsFor(userId: number, parentId: number | null) {
+  const result = postComment(db, userId, lessonId, parentId, "Hello");
+  if (!result.ok) throw new Error(result.error);
+  return result.notifications;
+}

@@ -71,7 +71,6 @@ const catalogue = {
       detail: data.reason,
     })
   ),
-
   // N2: the buyer's Refund Request was approved. Feed only: the buyer already
   // gets the decision email from Postmark.
   "refund-request-approved": kind(
@@ -119,6 +118,47 @@ const catalogue = {
       text: `${data.deciderName} ${data.decision} ${data.buyerName}'s refund on ${data.courseTitle}`,
     })
   ),
+  // N4: a Student claimed a Seat on a Team Licence.
+  "seat-claimed": kind(
+    z.object({
+      studentName: z.string(),
+      courseTitle: z.string(),
+      claimedSeats: z.number(),
+      totalSeats: z.number(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: `${data.studentName} claimed a Seat on ${data.courseTitle} (${data.claimedSeats} of ${data.totalSeats} Seats claimed)`,
+    })
+  ),
+  // N5: a Student posted a Discussion Question on the Instructor's course.
+  "discussion-question-posted": kind(
+    z.object({
+      studentName: z.string(),
+      lessonTitle: z.string(),
+      courseTitle: z.string(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: `${data.studentName} asked a Question on ${data.lessonTitle} in ${data.courseTitle}`,
+    })
+  ),
+  // N6: someone posted a Discussion Reply. `answered` when the reply is from
+  // staff (the course's Instructor or a Platform Admin).
+  "discussion-reply-posted": kind(
+    z.object({
+      replierName: z.string(),
+      lessonTitle: z.string(),
+      courseTitle: z.string(),
+      answered: z.boolean(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: data.answered
+        ? `${data.replierName} answered your Question on ${data.lessonTitle}`
+        : `${data.replierName} replied to your comment on ${data.lessonTitle}`,
+    })
+  ),
 };
 
 export type NotificationKind = keyof typeof catalogue;
@@ -142,11 +182,21 @@ export type RefundRequestApproved = NotificationOf<"refund-request-approved">;
 export type RefundRequestDeclined = NotificationOf<"refund-request-declined">;
 export type RefundRequestDecided = NotificationOf<"refund-request-decided">;
 
+export type SeatClaimed = NotificationOf<"seat-claimed">;
+
+export type DiscussionQuestionPosted =
+  NotificationOf<"discussion-question-posted">;
+
+export type DiscussionReplyPosted = NotificationOf<"discussion-reply-posted">;
+
 export type Notification =
   | RefundRequestRaised
   | RefundRequestApproved
   | RefundRequestDeclined
-  | RefundRequestDecided;
+  | RefundRequestDecided
+  | SeatClaimed
+  | DiscussionQuestionPosted
+  | DiscussionReplyPosted;
 
 // ─── Builders ───
 // Every builder leaves the actor out of the recipients: nobody is told about
@@ -228,6 +278,48 @@ export function refundRequestDecided(
     refundRequestId,
     decider,
     platformAdmins,
+    data
+  );
+}
+
+/** N4. Goes to the Team Licence's Team Admin, unless they claimed the Seat. */
+export function seatClaimed(
+  seatId: number,
+  student: NotificationPerson,
+  teamAdmin: NotificationPerson,
+  data: DataOf<"seat-claimed">
+): SeatClaimed {
+  return notify("seat-claimed", seatId, student, [teamAdmin], data);
+}
+
+/** N5. Goes to the course's Instructor, keyed by the Discussion Question's id. */
+export function discussionQuestionPosted(
+  commentId: number,
+  student: NotificationPerson,
+  instructor: NotificationPerson,
+  data: DataOf<"discussion-question-posted">
+): DiscussionQuestionPosted {
+  return notify(
+    "discussion-question-posted",
+    commentId,
+    student,
+    [instructor],
+    data
+  );
+}
+
+/** N6. Goes to the Discussion Question's author, keyed by the reply's id. */
+export function discussionReplyPosted(
+  commentId: number,
+  replier: NotificationPerson,
+  questionAuthor: NotificationPerson,
+  data: DataOf<"discussion-reply-posted">
+): DiscussionReplyPosted {
+  return notify(
+    "discussion-reply-posted",
+    commentId,
+    replier,
+    [questionAuthor],
     data
   );
 }

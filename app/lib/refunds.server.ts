@@ -373,7 +373,7 @@ export type RaiseResult =
 
 // ─── Who hears about Refund Requests ───
 
-function toPerson(user: User): NotificationPerson {
+export function toPerson(user: User): NotificationPerson {
   return {
     id: user.id,
     name: user.name,
