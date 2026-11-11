@@ -81,24 +81,27 @@ It needs to be public: GitHub Actions minutes are free on public repos, and the 
 
 You don't need these yet, but you'll be asked for them along the way. Both have a free option:
 
-- **[Knock](https://knock.app/)**, a free Developer account, when you build notifications. Its keys go in `.env`, which is gitignored.
+- **[Knock](https://knock.app/)**, a free Developer account, when you build notifications. Its keys go in `.env`, which is gitignored: `KNOCK_API_KEY`, `KNOCK_PUBLIC_API_KEY` and `KNOCK_SIGNING_KEY` for the app, plus a service token, `KNOCK_SERVICE_TOKEN` (Account settings → Service tokens), for pushing workflows. See `knock/README.md`.
 - **[tldraw](https://www.tldraw.com/)**, for whiteboarding your tasks. Any drawing app will do.
 
 ## Scripts
 
-| Command                      | Description                                  |
-| ---------------------------- | -------------------------------------------- |
-| `npm run dev`                | Start the development server                 |
-| `npm run build`              | Build for production                         |
-| `npm run test`               | Run tests with Vitest                        |
-| `npm run test:watch`         | Run tests in watch mode                      |
-| `npm run typecheck`          | Type-check the project                       |
-| `npm run db:generate`        | Generate a migration from the schema         |
-| `npm run db:migrate`         | Run database migrations                      |
-| `npm run db:seed`            | Reseed the database (drops and recreates it) |
-| `npm run reset <slug>`       | Reset your repo to a lesson checkpoint       |
-| `npm run cherry-pick <slug>` | Cherry-pick a lesson's solution              |
-| `npm run pull`               | Merge the course repo's latest `main` in     |
+| Command                      | Description                                    |
+| ---------------------------- | ---------------------------------------------- |
+| `npm run dev`                | Start the development server                   |
+| `npm run build`              | Build for production                           |
+| `npm run test`               | Run tests with Vitest                          |
+| `npm run test:watch`         | Run tests in watch mode                        |
+| `npm run typecheck`          | Type-check the project                         |
+| `npm run db:generate`        | Generate a migration from the schema           |
+| `npm run db:migrate`         | Run database migrations                        |
+| `npm run db:seed`            | Reseed the database (drops and recreates it)   |
+| `npm run knock:validate`     | Check the Knock workflows in `knock/`          |
+| `npm run knock:push`         | Push and commit Knock workflows to Development |
+| `npm run knock:pull`         | Pull Knock workflows from Development          |
+| `npm run reset <slug>`       | Reset your repo to a lesson checkpoint         |
+| `npm run cherry-pick <slug>` | Cherry-pick a lesson's solution                |
+| `npm run pull`               | Merge the course repo's latest `main` in       |
 
 ## Course Structure
 
