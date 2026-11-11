@@ -74,7 +74,9 @@ export function useNotificationFeed(
     const socket = knock.client().socket;
     const socketRefs = socket
       ? [
+          // A dropped connection closes without an error, so watch both.
           socket.onError(() => setIsLive(false)),
+          socket.onClose(() => setIsLive(false)),
           socket.onOpen(() => setIsLive(true)),
         ]
       : [];
