@@ -19,6 +19,9 @@
     "db:seed": "tsx scripts/seed.ts",
     "seed-wayfinder-issues": "bash scripts/seed-wayfinder-issues.sh",
     "db:migrate": "drizzle-kit migrate",
+    "knock:validate": "bash scripts/knock-workflows.sh validate",
+    "knock:push": "bash scripts/knock-workflows.sh push",
+    "knock:pull": "bash scripts/knock-workflows.sh pull",
     "loc": "git ls-files | grep -vE '(lock|.db|_snapshot.json)' | xargs wc -l"
   },
   "dependencies": {
@@ -48,6 +51,7 @@
   "devDependencies": {
     "@ai-hero/sandcastle": "^0.14.0",
     "@clack/prompts": "^1.7.0",
+    "@knocklabs/cli": "^1.6.1",
     "@react-router/dev": "8.3.0",
     "@tailwindcss/vite": "^4.1.13",
     "@types/better-sqlite3": "^7.6.13",
@@ -73,7 +77,8 @@
     "esbuild@0.25.12": true,
     "msw@2.15.0": true,
     "esbuild@0.28.2": true,
-    "fsevents@2.3.3": true
+    "fsevents@2.3.3": true,
+    "@swc/core@1.16.21": true
   },
   "overrides": {
     "dompurify": "3.4.17"
