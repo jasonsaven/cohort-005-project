@@ -13,9 +13,8 @@ import {
   discussionReplyPosted,
   withRecipients,
   type Notification,
-  type NotificationPerson,
 } from "~/lib/notifications";
-import type { Db } from "~/lib/refunds.server";
+import { toPerson, type Db } from "~/lib/refunds.server";
 
 // ─── Comments ───
 // Posting a comment on a lesson: a Discussion Question, or a Discussion Reply
@@ -28,15 +27,6 @@ type User = typeof users.$inferSelect;
 export type PostCommentResult =
   | { ok: true; comment: Comment; notifications: Notification[] }
   | { ok: false; error: string };
-
-function toPerson(user: User): NotificationPerson {
-  return {
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    avatarUrl: user.avatarUrl,
-  };
-}
 
 export function postComment(
   db: Db,
