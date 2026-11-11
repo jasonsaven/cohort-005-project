@@ -594,3 +594,141 @@ describe("the Notifications a raised Refund Request sends", () => {
     expect(result).not.toHaveProperty("notifications");
   });
 });
+
+describe("the Notifications a decided Refund Request sends", () => {
+  function addPlatformAdmin(name: string) {
+    return db
+      .insert(schema.users)
+      .values({
+        name,
+        email: `${name.toLowerCase()}@example.com`,
+        role: UserRole.Admin,
+      })
+      .returning()
+      .get();
+  }
+
+  function approveOk(refundRequestId: number, note: string | null = null) {
+    const result = approveRefundRequest(
+      db,
+      refundRequestId,
+      platformAdmin.id,
+      note,
+      NOW
+    );
+    if (!result.ok) throw new Error(result.error);
+    return result.notifications;
+  }
+
+  function declineOk(refundRequestId: number, note: string) {
+    const result = declineRefundRequest(
+      db,
+      refundRequestId,
+      platformAdmin.id,
+      note,
+      NOW
+    );
+    if (!result.ok) throw new Error(result.error);
+    return result.notifications;
+  }
+
+  function ofKind(notifications: { kind: string }[], kind: string) {
+    return notifications.find((n) => n.kind === kind);
+  }
+
+  it("tells the buyer of an Individual Purchase that their Enrollment ended", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const notifications = approveOk(id);
+
+    expect(ofKind(notifications, "refund-request-approved")).toMatchObject({
+      recipients: [{ id: base.user.id }],
+      actor: { id: platformAdmin.id },
+      idempotencyKey: `refund-request-approved:${id}`,
+      data: {
+        courseTitle: "Test Course",
+        ended: "enrollment",
+        decisionNote: null,
+        url: "/settings#refund-requests",
+      },
+    });
+  });
+
+  it("tells the buyer of a Team Licence that its Unclaimed Seats ended, with the note", () => {
+    const priya = addLearner("Priya");
+    const { purchase } = buySeats(priya.id, 2);
+    const id = raise(purchase.id, priya.id);
+
+    const notifications = approveOk(id, "Sorry it didn't work out.");
+
+    expect(ofKind(notifications, "refund-request-approved")).toMatchObject({
+      recipients: [{ id: priya.id }],
+      data: { ended: "unclaimed_seats", decisionNote: "Sorry it didn't work out." },
+    });
+  });
+
+  it("tells the buyer their Refund Request was declined, with the note", () => {
+    const priya = addLearner("Priya");
+    const { purchase } = buySeats(priya.id, 1);
+    const id = raise(purchase.id, priya.id);
+
+    const notifications = declineOk(id, "  The Seats are in use.  ");
+
+    expect(ofKind(notifications, "refund-request-approved")).toBeUndefined();
+    expect(ofKind(notifications, "refund-request-declined")).toMatchObject({
+      recipients: [{ id: priya.id }],
+      actor: { id: platformAdmin.id },
+      idempotencyKey: `refund-request-declined:${id}`,
+      data: {
+        courseTitle: "Test Course",
+        decisionNote: "The Seats are in use.",
+        url: "/settings#refund-requests",
+      },
+    });
+  });
+
+  it("tells every other Platform Admin who decided it, leaving out the decider", () => {
+    const sam = addPlatformAdmin("Sam");
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const notifications = declineOk(id, "You finished the course.");
+
+    expect(ofKind(notifications, "refund-request-decided")).toMatchObject({
+      recipients: [{ id: sam.id }],
+      actor: { id: platformAdmin.id },
+      idempotencyKey: `refund-request-decided:${id}`,
+      data: {
+        deciderName: "Pat Admin",
+        decision: "declined",
+        buyerName: "Test User",
+        courseTitle: "Test Course",
+        url: "/admin/refunds",
+      },
+    });
+  });
+
+  it("sends no N7 when the decider is the only Platform Admin", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+
+    const notifications = approveOk(id);
+
+    expect(notifications.map((n) => n.kind)).toEqual(["refund-request-approved"]);
+  });
+
+  it("sends nothing when the decision fails", () => {
+    const purchase = buyForSelf(base.user.id);
+    const id = raise(purchase.id, base.user.id);
+    approveOk(id);
+
+    const again = approveRefundRequest(db, id, platformAdmin.id, null, NOW);
+    const blank = declineRefundRequest(db, id, platformAdmin.id, " ", NOW);
+
+    expect(again).toMatchObject({ ok: false, status: 409 });
+    expect(again).not.toHaveProperty("notifications");
+    expect(blank).toMatchObject({ ok: false, status: 400 });
+    expect(blank).not.toHaveProperty("notifications");
+  });
+});

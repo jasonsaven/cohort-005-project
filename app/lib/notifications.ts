@@ -71,6 +71,54 @@ const catalogue = {
       detail: data.reason,
     })
   ),
+
+  // N2: the buyer's Refund Request was approved. Feed only: the buyer already
+  // gets the decision email from Postmark.
+  "refund-request-approved": kind(
+    z.object({
+      courseTitle: z.string(),
+      // What the approval ended. Nothing, for an Individual Purchase whose
+      // buyer also holds a Claimed Seat for the course (docs/adr/0004).
+      ended: z.enum(["enrollment", "unclaimed_seats", "nothing"]),
+      decisionNote: z.string().nullable(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: {
+        enrollment: `Your refund on ${data.courseTitle} was approved, and your Enrollment has ended`,
+        unclaimed_seats: `Your refund on a Team Licence for ${data.courseTitle} was approved, and its Unclaimed Seats can no longer be claimed`,
+        nothing: `Your refund on ${data.courseTitle} was approved`,
+      }[data.ended],
+      detail: data.decisionNote ?? undefined,
+    })
+  ),
+
+  // N3: the buyer's Refund Request was declined. Feed only, like N2.
+  "refund-request-declined": kind(
+    z.object({
+      courseTitle: z.string(),
+      decisionNote: z.string(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: `Your refund on ${data.courseTitle} was declined. You can raise a new Refund Request`,
+      detail: data.decisionNote,
+    })
+  ),
+
+  // N7: another Platform Admin decided a Refund Request.
+  "refund-request-decided": kind(
+    z.object({
+      deciderName: z.string(),
+      decision: z.enum(["approved", "declined"]),
+      buyerName: z.string(),
+      courseTitle: z.string(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: `${data.deciderName} ${data.decision} ${data.buyerName}'s refund on ${data.courseTitle}`,
+    })
+  ),
 };
 
 export type NotificationKind = keyof typeof catalogue;
@@ -90,7 +138,15 @@ type NotificationOf<Kind extends NotificationKind> = {
 
 export type RefundRequestRaised = NotificationOf<"refund-request-raised">;
 
-export type Notification = RefundRequestRaised;
+export type RefundRequestApproved = NotificationOf<"refund-request-approved">;
+export type RefundRequestDeclined = NotificationOf<"refund-request-declined">;
+export type RefundRequestDecided = NotificationOf<"refund-request-decided">;
+
+export type Notification =
+  | RefundRequestRaised
+  | RefundRequestApproved
+  | RefundRequestDeclined
+  | RefundRequestDecided;
 
 // ─── Builders ───
 // Every builder leaves the actor out of the recipients: nobody is told about
@@ -123,6 +179,54 @@ export function refundRequestRaised(
     "refund-request-raised",
     refundRequestId,
     buyer,
+    platformAdmins,
+    data
+  );
+}
+
+/** N2. Goes to the buyer, from the deciding Platform Admin. */
+export function refundRequestApproved(
+  refundRequestId: number,
+  decider: NotificationPerson,
+  buyer: NotificationPerson,
+  data: DataOf<"refund-request-approved">
+): RefundRequestApproved {
+  return notify(
+    "refund-request-approved",
+    refundRequestId,
+    decider,
+    [buyer],
+    data
+  );
+}
+
+/** N3. Goes to the buyer, from the deciding Platform Admin. */
+export function refundRequestDeclined(
+  refundRequestId: number,
+  decider: NotificationPerson,
+  buyer: NotificationPerson,
+  data: DataOf<"refund-request-declined">
+): RefundRequestDeclined {
+  return notify(
+    "refund-request-declined",
+    refundRequestId,
+    decider,
+    [buyer],
+    data
+  );
+}
+
+/** N7. Goes to every Platform Admin but the decider. */
+export function refundRequestDecided(
+  refundRequestId: number,
+  decider: NotificationPerson,
+  platformAdmins: NotificationPerson[],
+  data: DataOf<"refund-request-decided">
+): RefundRequestDecided {
+  return notify(
+    "refund-request-decided",
+    refundRequestId,
+    decider,
     platformAdmins,
     data
   );
