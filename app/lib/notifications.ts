@@ -71,6 +71,19 @@ const catalogue = {
       detail: data.reason,
     })
   ),
+  // N4: a Student claimed a Seat on a Team Licence.
+  "seat-claimed": kind(
+    z.object({
+      studentName: z.string(),
+      courseTitle: z.string(),
+      claimedSeats: z.number(),
+      totalSeats: z.number(),
+      url: z.string(),
+    }),
+    (data) => ({
+      text: `${data.studentName} claimed a Seat on ${data.courseTitle} (${data.claimedSeats} of ${data.totalSeats} Seats claimed)`,
+    })
+  ),
 };
 
 export type NotificationKind = keyof typeof catalogue;
@@ -90,7 +103,9 @@ type NotificationOf<Kind extends NotificationKind> = {
 
 export type RefundRequestRaised = NotificationOf<"refund-request-raised">;
 
-export type Notification = RefundRequestRaised;
+export type SeatClaimed = NotificationOf<"seat-claimed">;
+
+export type Notification = RefundRequestRaised | SeatClaimed;
 
 // ─── Builders ───
 // Every builder leaves the actor out of the recipients: nobody is told about
@@ -126,6 +141,16 @@ export function refundRequestRaised(
     platformAdmins,
     data
   );
+}
+
+/** N4. Goes to the Team Licence's Team Admin, unless they claimed the Seat. */
+export function seatClaimed(
+  seatId: number,
+  student: NotificationPerson,
+  teamAdmin: NotificationPerson,
+  data: DataOf<"seat-claimed">
+): SeatClaimed {
+  return notify("seat-claimed", seatId, student, [teamAdmin], data);
 }
 
 /** Drops Notifications nobody would receive (e.g. the actor was the only recipient). */

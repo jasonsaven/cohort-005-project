@@ -1,0 +1,1 @@
+**{{ data.studentName }}** claimed a Seat on **{{ data.courseTitle }}** ({{ data.claimedSeats }} of {{ data.totalSeats }} Seats claimed)

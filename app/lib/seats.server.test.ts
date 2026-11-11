@@ -164,3 +164,71 @@ describe("claimSeat", () => {
     });
   });
 });
+
+describe("claimSeat Notifications", () => {
+  it("tells the Team Admin who claimed a Seat, with the Seats claimed after the claim", () => {
+    const { seats } = buySeats(5);
+    claimSeat(db, seats[0].code, addUser("Ann").id, "", NOW);
+    claimSeat(db, seats[1].code, addUser("Ben").id, "", NOW);
+
+    const result = claimSeat(db, seats[2].code, student.id, "", NOW);
+
+    expect(result).toMatchObject({
+      ok: true,
+      notifications: [
+        {
+          kind: "seat-claimed",
+          recipients: [{ id: teamAdmin.id, name: "Tess" }],
+          actor: { id: student.id, name: "Sam" },
+          idempotencyKey: `seat-claimed:${seats[2].id}`,
+          data: {
+            studentName: "Sam",
+            courseTitle: base.course.title,
+            claimedSeats: 3,
+            totalSeats: 5,
+            url: "/team",
+          },
+        },
+      ],
+    });
+  });
+
+  it("sends nothing when the Team Admin claims a Seat themselves", () => {
+    const { seats } = buySeats(2);
+
+    const result = claimSeat(db, seats[0].code, teamAdmin.id, "", NOW);
+
+    expect(result).toMatchObject({ ok: true, notifications: [] });
+  });
+
+  it("sends nothing when the claim fails", () => {
+    const { seats } = buySeats(1);
+    claimSeat(db, seats[0].code, addUser("Ann").id, "", NOW);
+
+    const result = claimSeat(db, seats[0].code, student.id, "", NOW);
+
+    expect(result).toEqual({
+      ok: false,
+      error: "Coupon has already been redeemed",
+    });
+  });
+
+  it("builds the same idempotency key for the same Seat", () => {
+    const { seats } = buySeats(1);
+    const first = claimSeat(db, seats[0].code, student.id, "", NOW);
+    db.update(schema.coupons)
+      .set({ redeemedByUserId: null, redeemedAt: null })
+      .where(eq(schema.coupons.id, seats[0].id))
+      .run();
+    db.delete(schema.enrollments).run();
+
+    const second = claimSeat(db, seats[0].code, student.id, "", NOW);
+
+    expect(first.ok && first.notifications[0].idempotencyKey).toBe(
+      `seat-claimed:${seats[0].id}`
+    );
+    expect(second.ok && second.notifications[0].idempotencyKey).toBe(
+      `seat-claimed:${seats[0].id}`
+    );
+  });
+});
