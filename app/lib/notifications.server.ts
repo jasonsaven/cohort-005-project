@@ -12,6 +12,8 @@ import type {
 
 export interface NotificationTransport {
   send(notifications: Notification[]): Promise<void>;
+  /** Creates or updates the person in Knock. */
+  identify(person: NotificationPerson): Promise<void>;
 }
 
 // A Knock user id is the Cadence user id as a string. Recipients and the
@@ -52,6 +54,10 @@ export function knockTransport(apiKey: string): NotificationTransport {
         throw new AggregateError(failures, "Knock rejected a Notification");
       }
     },
+    async identify(person) {
+      const { id, ...properties } = toKnockUser(person);
+      await knock.users.update(id, properties);
+    },
   };
 }
 
@@ -67,17 +73,24 @@ export function loggingTransport(): NotificationTransport {
         );
       }
     },
+    async identify() {},
   };
 }
 
 export function recordingTransport(): NotificationTransport & {
   sent: Notification[];
+  identified: NotificationPerson[];
 } {
   const sent: Notification[] = [];
+  const identified: NotificationPerson[] = [];
   return {
     sent,
+    identified,
     async send(notifications) {
       sent.push(...notifications);
+    },
+    async identify(person) {
+      identified.push(person);
     },
   };
 }
@@ -102,6 +115,24 @@ export async function sendNotifications(
     await transport.send(notifications);
   } catch (error) {
     console.error("[notifications] Could not send Notifications", error);
+  }
+}
+
+/**
+ * Makes sure Knock knows this person. Triggers create recipients inline, but
+ * someone who has never been sent a Notification doesn't exist in Knock yet,
+ * and the browser (which skips identifying) can't read their preferences.
+ * Best-effort like `sendNotifications`: a failure is logged, and the
+ * preferences card shows its own error.
+ */
+export async function identifyNotificationUser(
+  person: NotificationPerson,
+  transport: NotificationTransport = defaultTransport()
+): Promise<void> {
+  try {
+    await transport.identify(person);
+  } catch (error) {
+    console.error("[notifications] Could not identify a Knock user", error);
   }
 }
 

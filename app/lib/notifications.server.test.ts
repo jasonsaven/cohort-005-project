@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Notification } from "./notifications";
 import {
+  identifyNotificationUser,
   recordingTransport,
   sendNotifications,
   type NotificationTransport,
@@ -44,10 +45,36 @@ describe("sendNotifications", () => {
       async send() {
         throw new Error("Knock is down");
       },
+      async identify() {},
     };
 
     await expect(
       sendNotifications([raised(1)], failing)
+    ).resolves.toBeUndefined();
+    expect(error).toHaveBeenCalled();
+  });
+});
+
+describe("identifyNotificationUser", () => {
+  it("hands the person to the transport, so Knock knows them before Settings reads their preferences", async () => {
+    const transport = recordingTransport();
+
+    await identifyNotificationUser(liam, transport);
+
+    expect(transport.identified).toEqual([liam]);
+  });
+
+  it("logs a transport failure instead of throwing, so Settings still loads", async () => {
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const failing: NotificationTransport = {
+      async send() {},
+      async identify() {
+        throw new Error("Knock is down");
+      },
+    };
+
+    await expect(
+      identifyNotificationUser(liam, failing)
     ).resolves.toBeUndefined();
     expect(error).toHaveBeenCalled();
   });

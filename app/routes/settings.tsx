@@ -18,7 +18,11 @@ import { eq } from "drizzle-orm";
 import { formatPrice } from "~/lib/utils";
 import { listRefundRequestsForBuyer } from "~/lib/refunds.server";
 import { isTeamAdmin } from "~/lib/seats.server";
-import { getNotificationFeedConfig } from "~/lib/notifications.server";
+import {
+  getNotificationFeedConfig,
+  identifyNotificationUser,
+} from "~/lib/notifications.server";
+import { toPerson } from "~/lib/users.server";
 import { notificationCategoriesFor } from "~/lib/notification-preferences";
 import { NotificationPreferencesCard } from "~/components/notification-preferences-card";
 
@@ -55,10 +59,15 @@ export async function loader({ request }: Route.LoaderArgs) {
 
   const refundRequests = listRefundRequestsForBuyer(db, currentUserId);
 
+  // Null without Knock keys, which hides the card like the bell.
+  const notificationConfig = await getNotificationFeedConfig(currentUserId);
+  // The card reads preferences straight from Knock, which only knows people
+  // it has sent a Notification to.
+  if (notificationConfig) await identifyNotificationUser(toPerson(currentUser));
+
   return {
     notifications: {
-      // Null without Knock keys, which hides the card like the bell.
-      config: await getNotificationFeedConfig(currentUserId),
+      config: notificationConfig,
       categories: notificationCategoriesFor({
         role: currentUser.role,
         // The same Team Admin N4 (`seat-claimed`) goes to.
