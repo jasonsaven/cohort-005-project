@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { Bell } from "lucide-react";
 import type { FeedItem } from "@knocklabs/client";
@@ -13,15 +13,15 @@ import {
   describeNotification,
   type NotificationFeedConfig,
 } from "~/lib/notifications";
+import { badgeText, shouldLoadMore } from "~/lib/notification-feed";
 import { useNotificationFeed } from "~/lib/use-notification-feed";
 
 // ─── The Notification Feed ───
 // A bell in the sidebar with a badge counting unseen Notifications. Opening it
 // shows the newest Notifications and marks them seen; clicking one marks it
-// read and goes to its page. If Knock is unreachable the bell shows no badge
-// and the popover says so; the rest of the page carries on.
-
-const SCROLL_END_THRESHOLD_PX = 48;
+// read and goes to its page. Older pages load as the list scrolls; new
+// Notifications arrive over Knock's socket. If Knock is unreachable the bell
+// shows no badge and the popover says so; the rest of the page carries on.
 
 function actorOf(item: FeedItem) {
   const [actor] = item.actors;
@@ -29,16 +29,27 @@ function actorOf(item: FeedItem) {
   return { name: actor.name ?? "Someone", avatarUrl: actor.avatar };
 }
 
+type Row = {
+  item: FeedItem;
+  description: NonNullable<ReturnType<typeof describeNotification>>;
+};
+
+// Rows we know how to show; a workflow triggered by hand from the Knock
+// dashboard, say, is left out.
+function rowsOf(items: FeedItem[]): Row[] {
+  return items.flatMap((item) => {
+    const description = describeNotification(item.source.key, item.data);
+    return description ? [{ item, description }] : [];
+  });
+}
+
 function NotificationRow({
-  item,
+  row: { item, description },
   onOpen,
 }: {
-  item: FeedItem;
+  row: Row;
   onOpen: (item: FeedItem, url: string) => void;
 }) {
-  const description = describeNotification(item.source.key, item.data);
-  if (!description) return null;
-
   const actor = actorOf(item);
   const isUnread = !item.read_at;
 
@@ -86,6 +97,18 @@ function NotificationRow({
   );
 }
 
+function TryAgain({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="font-medium text-primary hover:underline"
+    >
+      Try again
+    </button>
+  );
+}
+
 export function NotificationBell({
   config,
 }: {
@@ -94,13 +117,28 @@ export function NotificationBell({
   const feed = useNotificationFeed(config);
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  const showBadge = feed.status !== "error" && feed.unseenCount > 0;
+  const rows = rowsOf(feed.items);
+  const badge = badgeText(feed.unseenCount, feed.status);
+  const hasUnread =
+    badge !== null || rows.some(({ item }) => !item.read_at);
+  const canMarkAllAsRead =
+    (feed.status === "ready" || feed.status === "stale") && hasUnread;
 
-  function onOpenChange(open: boolean) {
-    setIsOpen(open);
-    if (open) feed.markLoadedAsSeen();
+  function loadMoreIfNeeded() {
+    const list = listRef.current;
+    if (list && shouldLoadMore(list, feed)) feed.fetchNextPage();
   }
+
+  // While the list is open, whatever arrives in it (a later page, a real-time
+  // update) has been seen. A page that doesn't fill the list can't be
+  // scrolled, so check whether to load more too.
+  useEffect(() => {
+    if (!isOpen) return;
+    feed.markLoadedAsSeen();
+    loadMoreIfNeeded();
+  });
 
   function openNotification(item: FeedItem, url: string) {
     feed.markAsRead(item);
@@ -108,32 +146,19 @@ export function NotificationBell({
     navigate(url);
   }
 
-  function onScroll(event: React.UIEvent<HTMLDivElement>) {
-    const list = event.currentTarget;
-    const distanceToEnd =
-      list.scrollHeight - list.scrollTop - list.clientHeight;
-    if (distanceToEnd < SCROLL_END_THRESHOLD_PX && !feed.isFetchingMore) {
-      feed.fetchNextPage();
-    }
-  }
-
   return (
-    <Popover open={isOpen} onOpenChange={onOpenChange}>
+    <Popover open={isOpen} onOpenChange={setIsOpen}>
       <PopoverTrigger asChild>
         <button
           type="button"
-          aria-label={
-            showBadge
-              ? `Notifications, ${feed.unseenCount} unseen`
-              : "Notifications"
-          }
+          aria-label={badge ? `Notifications, ${badge} unseen` : "Notifications"}
           className="flex w-full items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-sidebar-foreground/70 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
         >
           <span className="relative">
             <Bell className="size-4" />
-            {showBadge && (
+            {badge && (
               <span className="absolute -top-2 -right-2 flex min-w-4 items-center justify-center rounded-full bg-primary px-1 text-[10px] leading-4 font-semibold text-primary-foreground">
-                {feed.unseenCount > 99 ? "99+" : feed.unseenCount}
+                {badge}
               </span>
             )}
           </span>
@@ -143,7 +168,7 @@ export function NotificationBell({
       <PopoverContent side="right" align="end" className="w-96 p-0">
         <div className="flex items-center justify-between border-b px-4 py-3">
           <h2 className="text-sm font-semibold">Notifications</h2>
-          {feed.status === "ready" && feed.items.some((i) => !i.read_at) && (
+          {canMarkAllAsRead && (
             <button
               type="button"
               onClick={feed.markAllAsRead}
@@ -153,25 +178,35 @@ export function NotificationBell({
             </button>
           )}
         </div>
-        <div className="max-h-96 overflow-y-auto" onScroll={onScroll}>
+        {!feed.isLive && feed.status !== "error" && (
+          <p className="border-b bg-muted px-4 py-2 text-xs text-muted-foreground">
+            Live updates are paused. Reconnecting…
+          </p>
+        )}
+        <div
+          ref={listRef}
+          className="max-h-96 overflow-y-auto"
+          onScroll={loadMoreIfNeeded}
+        >
           {feed.status === "error" ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
-              Notifications couldn't be loaded. Try again in a moment.
+              Notifications couldn't be loaded.{" "}
+              <TryAgain onClick={feed.retry} />
             </p>
           ) : feed.status === "loading" ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
               Loading…
             </p>
-          ) : feed.items.length === 0 ? (
+          ) : rows.length === 0 && !feed.hasMore ? (
             <p className="px-4 py-8 text-center text-sm text-muted-foreground">
               You're all caught up. Nothing new to show.
             </p>
           ) : (
             <ul className="divide-y">
-              {feed.items.map((item) => (
+              {rows.map((row) => (
                 <NotificationRow
-                  key={item.id}
-                  item={item}
+                  key={row.item.id}
+                  row={row}
                   onOpen={openNotification}
                 />
               ))}
@@ -180,6 +215,12 @@ export function NotificationBell({
           {feed.isFetchingMore && (
             <p className="px-4 py-3 text-center text-xs text-muted-foreground">
               Loading more…
+            </p>
+          )}
+          {feed.status === "stale" && (
+            <p className="px-4 py-3 text-center text-xs text-muted-foreground">
+              Some Notifications couldn't be loaded.{" "}
+              <TryAgain onClick={feed.retry} />
             </p>
           )}
         </div>
